@@ -13,7 +13,7 @@ then
 
   # Setup Window 1
   tmux rename-window 'neovim'
-  tmux send-keys -t "$SESSION:1" "neovim" C-m
+  tmux send-keys -t "$SESSION:1" "nvim" C-m
 
   # Setup remote
   tmux new-window -t "$SESSION" -n "remote"
