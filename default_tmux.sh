@@ -1,5 +1,11 @@
 #!/usr/bin/env zsh
 
+if [ -z "$1" ]
+then
+  echo "You need to add a name of the tmux sesssion"
+  exit 1
+fi
+
 SESSION=$1
 sesson_list=$(tmux list-sessions | grep $SESSION)
 
