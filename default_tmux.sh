@@ -26,7 +26,6 @@ then
   tmux select-window -t "$SESSION:2"
   tmux split-window -h "zsh"
   tmux split-window -v "zsh"
-  tmux send-keys -t 2 "cmatrix -bC cyan" C-m
   tmux select-pane -t 1
 
 fi
