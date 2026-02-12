@@ -33,7 +33,6 @@ then
   tmux rename-window 'code'
   tmux split-window -h "bash"
   tmux send-keys -t "$SESSION:1" "cldr" C-m
-  tmux select-pane -t 2
 
 fi
 
