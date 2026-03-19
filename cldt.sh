@@ -31,8 +31,10 @@ then
 
   # Setup Window 1
   tmux rename-window 'code'
-  tmux split-window -h "bash"
-  tmux send-keys -t "$SESSION:1" "cldr" C-m
+  tmux select-pane -T 'shell'
+  tmux split-window -h
+  tmux select-pane -T 'claude'
+  tmux send-keys "claude --resume || claude" C-m
 
 fi
 
