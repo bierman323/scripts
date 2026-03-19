@@ -32,7 +32,7 @@ then
   # Setup Window 1
   tmux rename-window 'code'
   tmux select-pane -T 'shell'
-  tmux split-window -h
+  tmux split-window -h -p 70
   tmux select-pane -T 'claude'
   tmux send-keys "claude --resume || claude" C-m
 
