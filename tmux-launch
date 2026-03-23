@@ -2,7 +2,7 @@
 """tmux-launch: Config-driven tmux session launcher and pane manager.
 
 Usage:
-  tmux-launch <layout>                Launch a session from a YAML config
+  tmux-launch <layout>                Launch a session from a TOML config
   tmux-launch --add-window <layout>   Add windows from a layout into the current session
   tmux-launch --list                  List available layouts
   tmux-launch --add-pane [options]    Add a labeled pane to the current window
@@ -23,7 +23,7 @@ import os
 import subprocess
 import sys
 
-import yaml
+import tomllib
 
 CONFIG_DIR = os.path.expanduser("~/.config/tmux-layouts")
 
@@ -46,12 +46,12 @@ def session_exists(name):
 
 
 def load_config(name):
-    path = os.path.join(CONFIG_DIR, f"{name}.yaml")
+    path = os.path.join(CONFIG_DIR, f"{name}.toml")
     if not os.path.exists(path):
         print(f"Layout not found: {path}")
         sys.exit(1)
-    with open(path) as f:
-        return yaml.safe_load(f)
+    with open(path, "rb") as f:
+        return tomllib.load(f)
 
 
 def list_layouts():
@@ -59,9 +59,9 @@ def list_layouts():
         print(f"No config directory: {CONFIG_DIR}")
         return
     layouts = sorted(
-        f.removesuffix(".yaml")
+        f.removesuffix(".toml")
         for f in os.listdir(CONFIG_DIR)
-        if f.endswith(".yaml")
+        if f.endswith(".toml")
     )
     if not layouts:
         print("No layouts found.")
@@ -224,7 +224,7 @@ def add_windows(name):
 
     windows = config.get("windows", [])
     if not windows:
-        print(f"No windows defined in {name}.yaml")
+        print(f"No windows defined in {name}.toml")
         return
 
     created = []
