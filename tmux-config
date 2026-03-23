@@ -12,7 +12,7 @@ import os
 import subprocess
 import sys
 
-import yaml
+import tomllib
 
 CONFIG_DIR = os.path.expanduser("~/.config/tmux-layouts")
 
@@ -46,24 +46,85 @@ def list_profiles():
     if not os.path.isdir(CONFIG_DIR):
         return []
     return sorted(
-        f.removesuffix(".yaml")
+        f.removesuffix(".toml")
         for f in os.listdir(CONFIG_DIR)
-        if f.endswith(".yaml")
+        if f.endswith(".toml")
     )
 
 
 def load_profile(name):
-    """Load a profile YAML, return dict."""
-    path = os.path.join(CONFIG_DIR, f"{name}.yaml")
-    with open(path) as f:
-        return yaml.safe_load(f) or {}
+    """Load a profile TOML, return dict."""
+    path = os.path.join(CONFIG_DIR, f"{name}.toml")
+    with open(path, "rb") as f:
+        return tomllib.load(f) or {}
+
+
+def _toml_value(v):
+    """Format a Python value as a TOML literal."""
+    if isinstance(v, bool):
+        return "true" if v else "false"
+    if isinstance(v, int):
+        return str(v)
+    if isinstance(v, str):
+        return '"' + v.replace("\\", "\\\\").replace('"', '\\"') + '"'
+    if isinstance(v, list):
+        return "[" + ", ".join(_toml_value(x) for x in v) + "]"
+    return repr(v)
 
 
 def save_profile(name, config):
-    """Save a profile YAML."""
-    path = os.path.join(CONFIG_DIR, f"{name}.yaml")
+    """Save a profile as TOML."""
+    path = os.path.join(CONFIG_DIR, f"{name}.toml")
+    lines = []
+
+    # Write top-level scalar keys
+    for key in ("description", "session", "directory"):
+        if key in config and config[key]:
+            lines.append(f"{key} = {_toml_value(config[key])}")
+    if lines:
+        lines.append("")
+
+    # Write tab section if present
+    tab = config.get("tab", {})
+    if tab:
+        lines.append("[tab]")
+        if tab.get("title"):
+            lines.append(f"title = {_toml_value(tab['title'])}")
+        if tab.get("color"):
+            lines.append(f"color = {_toml_value(tab['color'])}")
+        lines.append("")
+
+    # Write pre_commands if present
+    if config.get("pre_commands"):
+        lines.append(f"pre_commands = {_toml_value(config['pre_commands'])}")
+        lines.append("")
+
+    # Write focus_window if present
+    if config.get("focus_window"):
+        lines.append(f"focus_window = {_toml_value(config['focus_window'])}")
+        lines.append("")
+
+    # Write windows as arrays of tables
+    for win in config.get("windows", []):
+        lines.append("[[windows]]")
+        for key in ("name", "layout", "directory"):
+            if key in win and win[key]:
+                lines.append(f"{key} = {_toml_value(win[key])}")
+        if win.get("focus_pane"):
+            lines.append(f"focus_pane = {_toml_value(win['focus_pane'])}")
+        lines.append("")
+
+        for pane in win.get("panes", []):
+            lines.append("[[windows.panes]]")
+            for key in ("title", "command", "split", "directory"):
+                if key in pane and pane[key]:
+                    lines.append(f"{key} = {_toml_value(pane[key])}")
+            if pane.get("percent"):
+                lines.append(f"percent = {_toml_value(pane['percent'])}")
+            lines.append("")
+
     with open(path, "w") as f:
-        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+        f.write("\n".join(lines))
     print(f"Saved: {path}")
 
 
@@ -125,7 +186,7 @@ def cmd_new_profile():
     if not name:
         print("Cancelled.")
         return
-    path = os.path.join(CONFIG_DIR, f"{name}.yaml")
+    path = os.path.join(CONFIG_DIR, f"{name}.toml")
     if os.path.exists(path):
         print(f"Profile '{name}' already exists. Use tmux-config to add panes to it.")
         return
