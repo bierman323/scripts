@@ -1,0 +1,308 @@
+#!/usr/bin/env python3
+"""tmux-launch: Config-driven tmux session launcher and pane manager.
+
+Usage:
+  tmux-launch <layout>                Launch a session from a YAML config
+  tmux-launch --add-window <layout>   Add windows from a layout into the current session
+  tmux-launch --list                  List available layouts
+  tmux-launch --add-pane [options]    Add a labeled pane to the current window
+
+Add-pane options:
+  -t, --title TITLE     Pane title (default: program name)
+  -c, --command CMD     Command to run (default: zsh)
+  -d, --direction DIR   Split direction: h(orizontal) or v(ertical) (default: h)
+  -p, --percent PCT     Pane size as percentage (default: 50)
+
+Config directory: ~/.config/tmux-layouts/
+
+Config supports 'directory' at session, window, and pane level (pane > window > session).
+"""
+
+import argparse
+import os
+import subprocess
+import sys
+
+import yaml
+
+CONFIG_DIR = os.path.expanduser("~/.config/tmux-layouts")
+
+
+def tmux(*args):
+    """Run a tmux command."""
+    cmd = ["tmux"] + list(args)
+    return subprocess.run(cmd, capture_output=True, text=True)
+
+
+def tmux_check(*args):
+    """Run a tmux command, return stdout stripped."""
+    result = tmux(*args)
+    return result.stdout.strip()
+
+
+def session_exists(name):
+    result = tmux("has-session", "-t", name)
+    return result.returncode == 0
+
+
+def load_config(name):
+    path = os.path.join(CONFIG_DIR, f"{name}.yaml")
+    if not os.path.exists(path):
+        print(f"Layout not found: {path}")
+        sys.exit(1)
+    with open(path) as f:
+        return yaml.safe_load(f)
+
+
+def list_layouts():
+    if not os.path.isdir(CONFIG_DIR):
+        print(f"No config directory: {CONFIG_DIR}")
+        return
+    layouts = sorted(
+        f.removesuffix(".yaml")
+        for f in os.listdir(CONFIG_DIR)
+        if f.endswith(".yaml")
+    )
+    if not layouts:
+        print("No layouts found.")
+        return
+    for name in layouts:
+        config = load_config(name)
+        session = config.get("session", name)
+        desc = config.get("description", "")
+        line = f"  {name:<20} session={session}"
+        if desc:
+            line += f"  ({desc})"
+        print(line)
+
+
+def resolve_directory(pane, win, config):
+    """Resolve directory for a pane: pane > window > session level."""
+    d = pane.get("directory") or win.get("directory") or config.get("directory")
+    if d:
+        return os.path.expanduser(d)
+    return None
+
+
+def build_window(session, win_target, win, config=None):
+    """Build panes inside an already-created window.
+
+    Args:
+        session: tmux session name
+        win_target: full window target string, e.g. "mysession:3"
+        win: window dict from the YAML config
+        config: top-level config dict for session-level defaults
+    """
+    config = config or {}
+    panes = win.get("panes", [])
+    if not panes:
+        return
+
+    # First pane already exists - cd if needed, label it, run command
+    first = panes[0]
+    first_dir = resolve_directory(first, win, config)
+    if first_dir:
+        tmux("send-keys", "-t", f"{win_target}.1",
+             f"cd {first_dir}", "C-m")
+    tmux("select-pane", "-t", f"{win_target}.1",
+         "-T", first.get("title", ""))
+    if first.get("command"):
+        tmux("send-keys", "-t", f"{win_target}.1",
+             first["command"], "C-m")
+
+    # Create additional panes
+    for j, pane in enumerate(panes[1:], start=2):
+        direction = "-h" if pane.get("split", "h") in ("h", "horizontal") else "-v"
+        pane_dir = resolve_directory(pane, win, config)
+        split_args = ["split-window", direction]
+        if pane.get("percent"):
+            split_args.extend(["-p", str(pane["percent"])])
+        if pane_dir:
+            split_args.extend(["-c", pane_dir])
+        split_args.extend(["-t", win_target])
+        tmux(*split_args)
+
+        tmux("select-pane", "-t", f"{win_target}.{j}",
+             "-T", pane.get("title", ""))
+        if pane.get("command"):
+            tmux("send-keys", "-t", f"{win_target}.{j}",
+                 pane["command"], "C-m")
+
+    # Apply layout if specified
+    layout = win.get("layout")
+    if layout:
+        tmux("select-layout", "-t", win_target, layout)
+
+    # Select initial pane if specified
+    focus = win.get("focus_pane", 1)
+    tmux("select-pane", "-t", f"{win_target}.{focus}")
+
+
+def launch_session(name):
+    config = load_config(name)
+    session = config.get("session", name)
+
+    if session_exists(session):
+        tmux("attach-session", "-t", session)
+        return
+
+    # Run pre-commands (e.g. sft resolve)
+    for cmd in config.get("pre_commands", []):
+        subprocess.run(cmd, shell=True)
+
+    # Set terminal tab title/color if specified
+    tab = config.get("tab", {})
+    if tab.get("title"):
+        sys.stdout.write(f"\033]1;{tab['title']}\a")
+        sys.stdout.flush()
+    if tab.get("color"):
+        r, g, b = tab["color"]
+        sys.stdout.write(f"\033]6;1;bg;red;brightness;{r}\a")
+        sys.stdout.write(f"\033]6;1;bg;green;brightness;{g}\a")
+        sys.stdout.write(f"\033]6;1;bg;blue;brightness;{b}\a")
+        sys.stdout.flush()
+
+    # Get terminal size
+    try:
+        size = os.get_terminal_size()
+        columns, lines = size.columns, size.lines
+    except OSError:
+        columns, lines = 200, 50
+
+    # Create the session, optionally in a starting directory
+    session_dir = config.get("directory")
+    if session_dir:
+        session_dir = os.path.expanduser(session_dir)
+    new_args = ["new-session", "-d", "-x", str(columns), "-y", str(lines), "-s", session]
+    if session_dir:
+        new_args.extend(["-c", session_dir])
+    tmux(*new_args)
+
+    windows = config.get("windows", [])
+    if not windows:
+        tmux("attach-session", "-t", session)
+        return
+
+    for i, win in enumerate(windows):
+        win_name = win.get("name", f"window-{i+1}")
+        win_idx = i + 1  # base-index 1
+
+        if i == 0:
+            tmux("rename-window", "-t", f"{session}:{win_idx}", win_name)
+        else:
+            # Resolve window directory for new-window
+            win_dir = win.get("directory") or config.get("directory")
+            new_win_args = ["new-window", "-t", session, "-n", win_name]
+            if win_dir:
+                new_win_args.extend(["-c", os.path.expanduser(win_dir)])
+            tmux(*new_win_args)
+
+        tmux("select-window", "-t", f"{session}:{win_idx}")
+        build_window(session, f"{session}:{win_idx}", win, config)
+
+    # Select initial window
+    focus_win = config.get("focus_window", 1)
+    tmux("select-window", "-t", f"{session}:{focus_win}")
+
+    tmux("attach-session", "-t", session)
+
+
+def add_windows(name):
+    """Add windows from a layout config into the current tmux session."""
+    if not os.environ.get("TMUX"):
+        print("Not inside a tmux session. Run this from within tmux.")
+        sys.exit(1)
+
+    config = load_config(name)
+
+    # Run pre-commands if any
+    for cmd in config.get("pre_commands", []):
+        subprocess.run(cmd, shell=True)
+
+    # Get current session name
+    session = tmux_check("display-message", "-p", "#{session_name}")
+
+    windows = config.get("windows", [])
+    if not windows:
+        print(f"No windows defined in {name}.yaml")
+        return
+
+    created = []
+    for win in windows:
+        win_name = win.get("name", "window")
+        # Create a new window in the current session
+        tmux("new-window", "-t", session, "-n", win_name)
+        # Get the index of the window we just created
+        win_idx = tmux_check("display-message", "-p", "-t", f"{session}:{win_name}", "#{window_index}")
+        win_target = f"{session}:{win_idx}"
+        build_window(session, win_target, win, config)
+        created.append(f"  {win_name} (window {win_idx})")
+
+    # Switch to the first window we created
+    first_name = windows[0].get("name", "window")
+    tmux("select-window", "-t", f"{session}:{first_name}")
+
+    print(f"Added {len(created)} window(s) from '{name}' to session '{session}':")
+    for line in created:
+        print(line)
+
+
+def add_pane(title, command, direction, percent):
+    """Add a new labeled pane to the current tmux window."""
+    if not os.environ.get("TMUX"):
+        print("Not inside a tmux session. Run this from within tmux.")
+        sys.exit(1)
+
+    split_dir = "-h" if direction in ("h", "horizontal") else "-v"
+    split_args = ["split-window", split_dir]
+    if percent:
+        split_args.extend(["-p", str(percent)])
+    tmux(*split_args)
+
+    # The new pane is now the active one - label it
+    if not title:
+        title = command.split()[0] if command else "zsh"
+    tmux("select-pane", "-T", title)
+
+    if command and command not in ("zsh", "bash"):
+        tmux("send-keys", command, "C-m")
+    elif command == "bash":
+        tmux("send-keys", "bash", "C-m")
+    # zsh is the default shell, no need to send anything
+
+
+def main():
+    parser = argparse.ArgumentParser(
+        description="Config-driven tmux session launcher",
+        usage="tmux-launch <layout> | --add-window <layout> | --list | --add-pane [options]",
+    )
+    parser.add_argument("layout", nargs="?", help="Layout name to launch")
+    parser.add_argument("--list", action="store_true", help="List available layouts")
+    parser.add_argument("--add-window", metavar="LAYOUT",
+                        help="Add windows from a layout into the current session")
+    parser.add_argument("--add-pane", action="store_true",
+                        help="Add a labeled pane to current window")
+    parser.add_argument("-t", "--title", help="Pane title")
+    parser.add_argument("-c", "--command", default="zsh",
+                        help="Command to run (default: zsh)")
+    parser.add_argument("-d", "--direction", default="h",
+                        help="Split direction: h or v (default: h)")
+    parser.add_argument("-p", "--percent", type=int, default=50,
+                        help="Pane size percentage (default: 50)")
+
+    args = parser.parse_args()
+
+    if args.list:
+        list_layouts()
+    elif args.add_window:
+        add_windows(args.add_window)
+    elif args.add_pane:
+        add_pane(args.title, args.command, args.direction, args.percent)
+    elif args.layout:
+        launch_session(args.layout)
+    else:
+        parser.print_help()
+
+
+if __name__ == "__main__":
+    main()

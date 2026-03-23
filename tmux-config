@@ -1,0 +1,255 @@
+#!/usr/bin/env python3
+"""tmux-config: Add panes/windows to tmux-launch profiles interactively.
+
+Usage (run from inside tmux):
+  tmux-config                  Auto-detect current pane and add to a profile
+  tmux-config --new            Create a new empty profile
+  tmux-config --show <profile> Show a profile's current config
+"""
+
+import argparse
+import os
+import subprocess
+import sys
+
+import yaml
+
+CONFIG_DIR = os.path.expanduser("~/.config/tmux-layouts")
+
+
+def tmux_query(fmt):
+    """Query tmux for current pane/window info."""
+    result = subprocess.run(
+        ["tmux", "display-message", "-p", fmt],
+        capture_output=True, text=True,
+    )
+    return result.stdout.strip()
+
+
+def get_current_pane_info():
+    """Gather info about the current tmux pane."""
+    # Get pane command - what's actually running
+    pane_cmd = tmux_query("#{pane_current_command}")
+    pane_title = tmux_query("#{pane_title}")
+    pane_path = tmux_query("#{pane_current_path}")
+    window_name = tmux_query("#{window_name}")
+    return {
+        "command": pane_cmd,
+        "title": pane_title,
+        "path": pane_path,
+        "window": window_name,
+    }
+
+
+def list_profiles():
+    """Return sorted list of profile names."""
+    if not os.path.isdir(CONFIG_DIR):
+        return []
+    return sorted(
+        f.removesuffix(".yaml")
+        for f in os.listdir(CONFIG_DIR)
+        if f.endswith(".yaml")
+    )
+
+
+def load_profile(name):
+    """Load a profile YAML, return dict."""
+    path = os.path.join(CONFIG_DIR, f"{name}.yaml")
+    with open(path) as f:
+        return yaml.safe_load(f) or {}
+
+
+def save_profile(name, config):
+    """Save a profile YAML."""
+    path = os.path.join(CONFIG_DIR, f"{name}.yaml")
+    with open(path, "w") as f:
+        yaml.dump(config, f, default_flow_style=False, sort_keys=False)
+    print(f"Saved: {path}")
+
+
+def prompt(msg, default=None):
+    """Prompt with optional default."""
+    if default:
+        val = input(f"{msg} [{default}]: ").strip()
+        return val if val else default
+    return input(f"{msg}: ").strip()
+
+
+def pick_from_list(items, label, allow_new=True):
+    """Let user pick from a numbered list. Returns (index, value) or (-1, new_name)."""
+    for i, item in enumerate(items, 1):
+        print(f"  {i}) {item}")
+    if allow_new:
+        print(f"  n) Create new")
+
+    while True:
+        choice = input(f"{label}: ").strip().lower()
+        if allow_new and choice == "n":
+            return -1, None
+        try:
+            idx = int(choice) - 1
+            if 0 <= idx < len(items):
+                return idx, items[idx]
+        except ValueError:
+            pass
+        print("Invalid choice, try again.")
+
+
+def show_profile(name):
+    """Pretty-print a profile."""
+    config = load_profile(name)
+    print(f"\n--- {name} ---")
+    if config.get("description"):
+        print(f"  {config['description']}")
+    if config.get("session"):
+        print(f"  session: {config['session']}")
+    if config.get("directory"):
+        print(f"  directory: {config['directory']}")
+    for win in config.get("windows", []):
+        print(f"\n  window: {win.get('name', '(unnamed)')}")
+        if win.get("layout"):
+            print(f"    layout: {win['layout']}")
+        for p in win.get("panes", []):
+            title = p.get("title", "")
+            cmd = p.get("command", "zsh")
+            split = p.get("split", "-")
+            pct = p.get("percent", "")
+            pct_str = f" {pct}%" if pct else ""
+            print(f"    [{split}]{pct_str} {title}: {cmd}")
+    print()
+
+
+def cmd_new_profile():
+    """Create a new empty profile."""
+    name = prompt("Profile name")
+    if not name:
+        print("Cancelled.")
+        return
+    path = os.path.join(CONFIG_DIR, f"{name}.yaml")
+    if os.path.exists(path):
+        print(f"Profile '{name}' already exists. Use tmux-config to add panes to it.")
+        return
+
+    desc = prompt("Description", "")
+    session = prompt("Session name", name)
+
+    directory = prompt("Starting directory (blank for none)", "")
+
+    config = {"description": desc, "session": session}
+    if directory:
+        config["directory"] = directory
+    config["windows"] = []
+
+    # Ask if they want to add a first window now
+    if input("Add a window now? [Y/n]: ").strip().lower() != "n":
+        win_name = prompt("Window name", "main")
+        layout = prompt("Layout (tiled/even-horizontal/even-vertical/main-horizontal/main-vertical, or blank)", "")
+        win = {"name": win_name, "panes": []}
+        if layout:
+            win["layout"] = layout
+        config["windows"].append(win)
+
+    save_profile(name, config)
+
+
+def cmd_add_pane():
+    """Add a pane to an existing (or new) profile."""
+    in_tmux = bool(os.environ.get("TMUX"))
+    pane_info = get_current_pane_info() if in_tmux else {}
+
+    profiles = list_profiles()
+    if not profiles:
+        print("No profiles found. Creating a new one.\n")
+        cmd_new_profile()
+        profiles = list_profiles()
+        if not profiles:
+            return
+
+    print("\nProfiles:")
+    idx, profile_name = pick_from_list(profiles, "Select profile", allow_new=True)
+
+    if idx == -1:
+        cmd_new_profile()
+        profiles = list_profiles()
+        if not profiles:
+            return
+        profile_name = profiles[-1]
+
+    config = load_profile(profile_name)
+    windows = config.get("windows", [])
+
+    if windows:
+        print(f"\nWindows in '{profile_name}':")
+        win_names = [w.get("name", f"window-{i+1}") for i, w in enumerate(windows)]
+        widx, _ = pick_from_list(win_names, "Select window", allow_new=True)
+    else:
+        widx = -1
+
+    if widx == -1:
+        win_name = prompt("New window name", pane_info.get("window", "main"))
+        layout = prompt("Layout (tiled/even-horizontal/even-vertical/blank)", "")
+        new_win = {"name": win_name, "panes": []}
+        if layout:
+            new_win["layout"] = layout
+        windows.append(new_win)
+        config["windows"] = windows
+        widx = len(windows) - 1
+
+    win = windows[widx]
+
+    # Gather pane details with smart defaults from current pane
+    default_title = pane_info.get("title", "")
+    default_cmd = pane_info.get("command", "zsh")
+    # If the running command is just zsh/bash, it's a shell - offer the path as context
+    if default_cmd in ("zsh", "bash") and pane_info.get("path"):
+        print(f"  (current dir: {pane_info['path']})")
+
+    title = prompt("Pane title", default_title)
+    command = prompt("Command", default_cmd)
+    default_dir = pane_info.get("path", "")
+    directory = prompt("Directory (blank to inherit from profile)", default_dir)
+
+    pane = {"title": title}
+
+    # First pane in a window doesn't need split direction
+    if win.get("panes"):
+        split = prompt("Split direction (h/v)", "h")
+        pane["split"] = split
+        pct = prompt("Size percent (blank for default)", "")
+        if pct:
+            pane["percent"] = int(pct)
+
+    if command and command != "zsh":
+        pane["command"] = command
+    if directory:
+        pane["directory"] = directory
+
+    win["panes"].append(pane)
+
+    save_profile(profile_name, config)
+    print(f"\nAdded pane '{title}' to {profile_name} -> {win.get('name', 'window')}")
+    print("Preview:")
+    show_profile(profile_name)
+
+
+def main():
+    parser = argparse.ArgumentParser(description="Add panes/windows to tmux-launch profiles")
+    parser.add_argument("--new", action="store_true", help="Create a new empty profile")
+    parser.add_argument("--show", metavar="PROFILE", help="Show a profile's config")
+    args = parser.parse_args()
+
+    os.makedirs(CONFIG_DIR, exist_ok=True)
+
+    if args.show:
+        if args.show not in list_profiles():
+            print(f"Profile '{args.show}' not found.")
+            sys.exit(1)
+        show_profile(args.show)
+    elif args.new:
+        cmd_new_profile()
+    else:
+        cmd_add_pane()
+
+
+if __name__ == "__main__":
+    main()
