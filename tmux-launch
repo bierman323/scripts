@@ -230,13 +230,15 @@ def add_windows(name):
     created = []
     for win in windows:
         win_name = win.get("name", "window")
-        # Create a new window in the current session
-        tmux("new-window", "-t", session, "-n", win_name)
-        # Get the index of the window we just created
-        win_idx = tmux_check("display-message", "-p", "-t", f"{session}:{win_name}", "#{window_index}")
-        win_target = f"{session}:{win_idx}"
+        # Create a new window in the current session and capture its index
+        win_dir = win.get("directory") or config.get("directory")
+        new_win_args = ["new-window", "-a", "-t", session, "-n", win_name]
+        if win_dir:
+            new_win_args.extend(["-c", os.path.expanduser(win_dir)])
+        tmux(*new_win_args)
+        win_target = f"{session}:{win_name}"
         build_window(session, win_target, win, config)
-        created.append(f"  {win_name} (window {win_idx})")
+        created.append(f"  {win_name}")
 
     # Switch to the first window we created
     first_name = windows[0].get("name", "window")
