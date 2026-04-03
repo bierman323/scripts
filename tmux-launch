@@ -230,9 +230,11 @@ def add_windows(name):
     created = []
     for win in windows:
         win_name = win.get("name", "window")
-        # Create a new window in the current session and capture its index
+        # Create a new window at the highest index (append to end)
         win_dir = win.get("directory") or config.get("directory")
-        new_win_args = ["new-window", "-a", "-t", session, "-n", win_name]
+        win_indices = tmux_check("list-windows", "-t", session, "-F", "#{window_index}")
+        max_idx = max((int(i) for i in win_indices.splitlines() if i.strip()), default=0)
+        new_win_args = ["new-window", "-t", f"{session}:{max_idx + 1}", "-n", win_name]
         if win_dir:
             new_win_args.extend(["-c", os.path.expanduser(win_dir)])
         tmux(*new_win_args)
