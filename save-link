@@ -1,0 +1,58 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+# ============================================================
+# CONFIGURATION — edit this section to adapt for your setup
+# ============================================================
+
+# Vault paths (no trailing slash)
+WORK_VAULT="${HOME}/obsidian-work"
+PERSONAL_VAULT="${HOME}/obsidian"
+
+# Folders within each vault available for filing (pipe-separated display|path pairs)
+# Format: "Display Name|relative/path/in/vault"
+# Listed in seed order (most relevant first); DB usage stats will reorder at runtime.
+WORK_FOLDERS=(
+  "Research/Security Research|Research/Security Research"
+  "Labs/Integration Lab|Labs/Integration Lab"
+  "Labs/Threat Lab|Labs/Threat Lab"
+  "Labs/DecAIpticon|Labs/DecAIpticon"
+  "IDR/detection_coe|IDR/detection_coe"
+  "IDR/schema_council|IDR/schema_council"
+  "Knowledge|Knowledge"
+  "Projects|Projects"
+  "AWN|AWN"
+  "Read later|Read later"
+)
+
+PERSONAL_FOLDERS=(
+  "Knowledge|Knowledge"
+  "plans|plans"
+  "Inbox|Inbox"
+)
+
+# SQLite database path
+DB_PATH="${HOME}/.local/share/save-link/links.db"
+
+# claude CLI command (used only for 'summarize' action)
+CLAUDE_CMD="claude"
+
+# fzf binary path
+FZF_CMD="fzf"
+
+# ============================================================
+# END CONFIGURATION
+# ============================================================
+
+usage() {
+  echo "Usage: save-link <url>"
+  echo ""
+  echo "Saves a URL as a structured markdown note into your Obsidian vault."
+  echo ""
+  echo "Dependencies: fzf, sqlite3, curl"
+  echo "Optional:     claude CLI (required for 'Fetch + summarize' action)"
+  exit 1
+}
+
+[[ $# -lt 1 ]] && usage
+URL="$1"
