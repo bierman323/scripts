@@ -44,6 +44,29 @@ FZF_CMD="fzf"
 # END CONFIGURATION
 # ============================================================
 
+db_init() {
+  mkdir -p "$(dirname "$DB_PATH")"
+  sqlite3 "$DB_PATH" <<'SQL'
+CREATE TABLE IF NOT EXISTS links (
+    id          INTEGER PRIMARY KEY AUTOINCREMENT,
+    url         TEXT NOT NULL,
+    title       TEXT,
+    file_path   TEXT NOT NULL,
+    folder      TEXT NOT NULL,
+    vault       TEXT NOT NULL,
+    action      TEXT NOT NULL,
+    saved_at    TEXT NOT NULL DEFAULT (date('now'))
+);
+CREATE UNIQUE INDEX IF NOT EXISTS idx_links_url ON links(url);
+CREATE TABLE IF NOT EXISTS folder_defaults (
+    folder          TEXT PRIMARY KEY,
+    default_action  TEXT NOT NULL,
+    sample_count    INTEGER NOT NULL DEFAULT 0,
+    updated_at      TEXT NOT NULL DEFAULT (date('now'))
+);
+SQL
+}
+
 usage() {
   echo "Usage: save-link <url>"
   echo ""
@@ -56,3 +79,5 @@ usage() {
 
 [[ $# -lt 1 ]] && usage
 URL="$1"
+
+db_init
