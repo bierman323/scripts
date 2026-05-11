@@ -94,18 +94,82 @@ duplicate_check() {
   fi
 }
 
+CURL_OPTS=(-s --max-time 8 --connect-timeout 5)
+
+resolve_title_atlassian() {
+  local url="$1"
+  local title=""
+
+  # Confluence page — extract page ID from URL
+  if [[ "$url" =~ /wiki/ ]]; then
+    local page_id
+    page_id=$(echo "$url" | grep -oE '/pages/[0-9]+' | grep -oE '[0-9]+' | head -1)
+    if [[ -n "$page_id" ]]; then
+      title=$(curl "${CURL_OPTS[@]}" \
+        -u "${ATLASSIAN_USER_EMAIL}:${ATLASSIAN_API_TOKEN}" \
+        -H "Accept: application/json" \
+        "${ATLASSIAN_SITE_URL}/wiki/rest/api/content/${page_id}" \
+        2>/dev/null \
+        | grep -o '"title":"[^"]*"' | head -1 | sed 's/"title":"//;s/"//')
+    fi
+  fi
+
+  # Jira issue — extract issue key from URL (e.g. /browse/PROJ-123)
+  if [[ -z "$title" && "$url" =~ /browse/([A-Z]+-[0-9]+) ]]; then
+    local issue_key="${BASH_REMATCH[1]}"
+    title=$(curl "${CURL_OPTS[@]}" \
+      -u "${ATLASSIAN_USER_EMAIL}:${ATLASSIAN_API_TOKEN}" \
+      -H "Accept: application/json" \
+      "${ATLASSIAN_SITE_URL}/rest/api/3/issue/${issue_key}?fields=summary" \
+      2>/dev/null \
+      | grep -o '"summary":"[^"]*"' | head -1 | sed 's/"summary":"//;s/"//')
+    [[ -n "$title" ]] && title="${issue_key}: ${title}"
+  fi
+
+  echo "$title"
+}
+
+is_atlassian_url() {
+  local url="$1"
+  [[ -n "${ATLASSIAN_SITE_URL:-}" ]] || return 1
+  local domain
+  domain=$(echo "$ATLASSIAN_SITE_URL" | sed 's|https\?://||;s|/.*||')
+  [[ "$url" == *"$domain"* ]]
+}
+
 resolve_title() {
   local url="$1"
-  local title
-  title=$(curl -sL --max-time 10 "$url" \
-    | grep -o '<title[^>]*>[^<]*</title>' \
-    | sed 's/<[^>]*>//g' \
-    | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
-    | head -1)
-  # Fallback to domain if no title found
+  local title=""
+
+  if is_atlassian_url "$url"; then
+    echo "Fetching title via Atlassian API..." >&2
+    title=$(resolve_title_atlassian "$url")
+  else
+    title=$(curl "${CURL_OPTS[@]}" -L "$url" 2>/dev/null \
+      | grep -o '<title[^>]*>[^<]*</title>' \
+      | sed 's/<[^>]*>//g' \
+      | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+      | head -1)
+  fi
+
+  # Filter out known auth-wall / error page titles
+  case "$title" in
+    ""|"Page not found"*|"Sign in"*|"Log in"*|"Login"*|"403"*|"401"*|"Access Denied"*)
+      title=""
+      ;;
+  esac
+
+  # Prompt for manual title if still empty
+  if [[ -z "$title" ]]; then
+    printf "Could not fetch title automatically.\nTitle: " >&2
+    read -r title </dev/tty
+  fi
+
+  # Final fallback to domain
   if [[ -z "$title" ]]; then
     title=$(echo "$url" | sed 's|https\?://||;s|/.*||')
   fi
+
   echo "$title"
 }
 
@@ -187,13 +251,20 @@ fi
 # Folder selection
 FOLDER_ENTRIES=$(build_folder_list "$VAULT_KEY" "${FOLDER_LIST[@]}")
 
-FOLDER_CHOICE=$(echo "$FOLDER_ENTRIES" \
-  | awk -F'|' '{print $1}' \
+FOLDER_CHOICE=$(printf '%s\n+ New location...' "$(echo "$FOLDER_ENTRIES" | awk -F'|' '{print $1}')" \
   | "$FZF_CMD" --prompt="Folder > " --height=15 --no-info)
 [[ -z "$FOLDER_CHOICE" ]] && { echo "Cancelled."; exit 0; }
 
 # Resolve the relative path for the chosen display name
-FOLDER_REL=$(echo "$FOLDER_ENTRIES" | grep -F "${FOLDER_CHOICE}|" | head -1 | cut -d'|' -f2)
+if [[ "$FOLDER_CHOICE" == "+ New location..." ]]; then
+  printf "Relative path in vault (e.g. Research/New Topic): "
+  FOLDER_REL=$(</dev/tty)
+  FOLDER_REL="${FOLDER_REL%/}"  # strip trailing slash
+  [[ -z "$FOLDER_REL" ]] && { echo "Cancelled."; exit 0; }
+  FOLDER_CHOICE="$FOLDER_REL"
+else
+  FOLDER_REL=$(echo "$FOLDER_ENTRIES" | grep -F "${FOLDER_CHOICE}|" | head -1 | cut -d'|' -f2)
+fi
 FOLDER_ABS="${VAULT_PATH}/${FOLDER_REL}"
 
 # Determine learned default for this folder (if any)
