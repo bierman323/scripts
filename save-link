@@ -67,6 +67,21 @@ CREATE TABLE IF NOT EXISTS folder_defaults (
 SQL
 }
 
+duplicate_check() {
+  local url="$1"
+  local existing
+  existing=$(sqlite3 "$DB_PATH" "SELECT file_path FROM links WHERE url = '$(echo "$url" | sed "s/'/''/g")' LIMIT 1;")
+  if [[ -n "$existing" ]]; then
+    echo "⚠  Already saved: $existing"
+    printf "Save again? [y/N] "
+    read -r answer </dev/tty
+    if [[ ! "$answer" =~ ^[Yy]$ ]]; then
+      echo "Aborted."
+      exit 0
+    fi
+  fi
+}
+
 usage() {
   echo "Usage: save-link <url>"
   echo ""
@@ -81,3 +96,4 @@ usage() {
 URL="$1"
 
 db_init
+duplicate_check "$URL"
