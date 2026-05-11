@@ -108,6 +108,33 @@ slugify() {
     | sed 's/-$//'
 }
 
+build_folder_list() {
+  local vault_key="$1"
+  shift
+  local folders=("$@")
+
+  # Get usage counts from DB
+  local counts
+  counts=$(sqlite3 "$DB_PATH" \
+    "SELECT folder, COUNT(*) as cnt FROM links WHERE vault='$vault_key' GROUP BY folder;" \
+    2>/dev/null || true)
+
+  # Build display list: prepend count (zero-padded for sort) to each entry
+  local sorted=()
+  for entry in "${folders[@]}"; do
+    local display="${entry%%|*}"
+    local rel_path="${entry##*|}"
+    local count=0
+    if echo "$counts" | grep -q "^${display}|"; then
+      count=$(echo "$counts" | grep "^${display}|" | cut -d'|' -f2)
+    fi
+    sorted+=("$(printf '%05d|%s|%s' "$count" "$display" "$rel_path")")
+  done
+
+  # Sort descending by count, strip the count prefix for display
+  printf '%s\n' "${sorted[@]}" | sort -rn | sed 's/^[0-9]*|//'
+}
+
 usage() {
   echo "Usage: save-link <url>"
   echo ""
@@ -132,3 +159,29 @@ DATE=$(date +%Y-%m-%d)
 FILENAME="${DATE}-${SLUG}.md"
 
 echo "FILENAME=$FILENAME"
+
+# Vault selection
+VAULT_CHOICE=$(printf "Work\nPersonal" | "$FZF_CMD" --prompt="Vault > " --height=5 --no-info)
+[[ -z "$VAULT_CHOICE" ]] && { echo "Cancelled."; exit 0; }
+
+if [[ "$VAULT_CHOICE" == "Work" ]]; then
+  VAULT_KEY="work"
+  VAULT_PATH="$WORK_VAULT"
+  FOLDER_LIST=("${WORK_FOLDERS[@]}")
+else
+  VAULT_KEY="personal"
+  VAULT_PATH="$PERSONAL_VAULT"
+  FOLDER_LIST=("${PERSONAL_FOLDERS[@]}")
+fi
+
+# Folder selection
+FOLDER_ENTRIES=$(build_folder_list "$VAULT_KEY" "${FOLDER_LIST[@]}")
+
+FOLDER_CHOICE=$(echo "$FOLDER_ENTRIES" \
+  | awk -F'|' '{print $1}' \
+  | "$FZF_CMD" --prompt="Folder > " --height=15 --no-info)
+[[ -z "$FOLDER_CHOICE" ]] && { echo "Cancelled."; exit 0; }
+
+# Resolve the relative path for the chosen display name
+FOLDER_REL=$(echo "$FOLDER_ENTRIES" | grep "^${FOLDER_CHOICE}|" | head -1 | cut -d'|' -f2)
+FOLDER_ABS="${VAULT_PATH}/${FOLDER_REL}"
