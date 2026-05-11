@@ -193,7 +193,7 @@ FOLDER_CHOICE=$(echo "$FOLDER_ENTRIES" \
 [[ -z "$FOLDER_CHOICE" ]] && { echo "Cancelled."; exit 0; }
 
 # Resolve the relative path for the chosen display name
-FOLDER_REL=$(echo "$FOLDER_ENTRIES" | grep "^${FOLDER_CHOICE}|" | head -1 | cut -d'|' -f2)
+FOLDER_REL=$(echo "$FOLDER_ENTRIES" | grep -F "${FOLDER_CHOICE}|" | head -1 | cut -d'|' -f2)
 FOLDER_ABS="${VAULT_PATH}/${FOLDER_REL}"
 
 # Determine learned default for this folder (if any)
@@ -252,6 +252,13 @@ NOTE_PATH="${FOLDER_ABS}/${FILENAME}"
 
 write_note() {
   local content="$1"
+  if [[ -e "$NOTE_PATH" ]]; then
+    local base="${NOTE_PATH%.md}"
+    local n=1
+    while [[ -e "${base}-${n}.md" ]]; do (( n++ )); done
+    NOTE_PATH="${base}-${n}.md"
+    echo "Note: filename collision, saving as $(basename "$NOTE_PATH")"
+  fi
   printf '%s\n' "$content" > "$NOTE_PATH"
 }
 
@@ -316,7 +323,7 @@ ${RAW_TEXT}
       | tr -s ' \t' ' ' \
       | head -c 8000)
 
-    SUMMARY=$(printf '%s\n\nPage content follows:\n' "$PAGE_CONTENT" | "$CLAUDE_CMD" -p "Summarize the following web page content. Output ONLY the markdown body — no code fences, no preamble. Use this exact format:
+    SUMMARY=$(printf 'Page content:\n\n%s\n' "$PAGE_CONTENT" | "$CLAUDE_CMD" -p "Summarize the following web page content. Output ONLY the markdown body — no code fences, no preamble. Use this exact format:
 
 # ${TITLE}
 
