@@ -158,8 +158,6 @@ SLUG=$(slugify "$TITLE")
 DATE=$(date +%Y-%m-%d)
 FILENAME="${DATE}-${SLUG}.md"
 
-echo "FILENAME=$FILENAME"
-
 # Vault selection
 VAULT_CHOICE=$(printf "Work\nPersonal" | "$FZF_CMD" --prompt="Vault > " --height=5 --no-info)
 [[ -z "$VAULT_CHOICE" ]] && { echo "Cancelled."; exit 0; }
@@ -185,3 +183,53 @@ FOLDER_CHOICE=$(echo "$FOLDER_ENTRIES" \
 # Resolve the relative path for the chosen display name
 FOLDER_REL=$(echo "$FOLDER_ENTRIES" | grep "^${FOLDER_CHOICE}|" | head -1 | cut -d'|' -f2)
 FOLDER_ABS="${VAULT_PATH}/${FOLDER_REL}"
+
+# Determine learned default for this folder (if any)
+FOLDER_DEFAULT=$(sqlite3 "$DB_PATH" \
+  "SELECT default_action FROM folder_defaults WHERE folder='$(echo "$FOLDER_CHOICE" | sed "s/'/''/g")' LIMIT 1;" \
+  2>/dev/null || true)
+
+ACTIONS=(
+  "link-only|File link only"
+  "summarize|Fetch + summarize (requires claude CLI)"
+  "excerpt|Fetch + excerpt"
+  "annotate|Add my note"
+)
+
+# Build fzf input — put learned default first if exists
+ACTION_DISPLAY=()
+for a in "${ACTIONS[@]}"; do
+  ACTION_DISPLAY+=("${a##*|}")
+done
+
+if [[ -n "$FOLDER_DEFAULT" ]]; then
+  # Find the label for the default action key and move it to top
+  DEFAULT_LABEL=""
+  for a in "${ACTIONS[@]}"; do
+    if [[ "${a%%|*}" == "$FOLDER_DEFAULT" ]]; then
+      DEFAULT_LABEL="${a##*|}"
+      break
+    fi
+  done
+  # Reorder: default first, rest after
+  ORDERED_LABELS=("$DEFAULT_LABEL")
+  for label in "${ACTION_DISPLAY[@]}"; do
+    [[ "$label" != "$DEFAULT_LABEL" ]] && ORDERED_LABELS+=("$label")
+  done
+  ACTION_LIST=$(printf '%s\n' "${ORDERED_LABELS[@]}")
+else
+  ACTION_LIST=$(printf '%s\n' "${ACTION_DISPLAY[@]}")
+fi
+
+ACTION_LABEL=$(echo "$ACTION_LIST" \
+  | "$FZF_CMD" --prompt="Action > " --height=8 --no-info)
+[[ -z "$ACTION_LABEL" ]] && { echo "Cancelled."; exit 0; }
+
+# Map label back to action key
+ACTION_KEY=""
+for a in "${ACTIONS[@]}"; do
+  if [[ "${a##*|}" == "$ACTION_LABEL" ]]; then
+    ACTION_KEY="${a%%|*}"
+    break
+  fi
+done
