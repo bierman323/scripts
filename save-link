@@ -44,6 +44,18 @@ FZF_CMD="fzf"
 # END CONFIGURATION
 # ============================================================
 
+check_deps() {
+  local missing=()
+  for cmd in fzf sqlite3 curl; do
+    command -v "$cmd" &>/dev/null || missing+=("$cmd")
+  done
+  if [[ ${#missing[@]} -gt 0 ]]; then
+    echo "Error: missing required dependencies: ${missing[*]}"
+    echo "Install them and try again."
+    exit 1
+  fi
+}
+
 db_init() {
   mkdir -p "$(dirname "$DB_PATH")"
   sqlite3 "$DB_PATH" <<'SQL'
@@ -147,7 +159,7 @@ usage() {
 
 [[ $# -lt 1 ]] && usage
 URL="$1"
-
+check_deps
 db_init
 duplicate_check "$URL"
 
