@@ -267,3 +267,65 @@ case "$ACTION_KEY" in
 ${USER_NOTE}
 "
     ;;
+
+  excerpt)
+    echo "Fetching page content..."
+    RAW_TEXT=$(curl -sL --max-time 15 "$URL" \
+      | perl -0pe 's/<script[^>]*>.*?<\/script>//gsi' \
+      | perl -0pe 's/<style[^>]*>.*?<\/style>//gsi' \
+      | sed 's/<[^>]*>//g' \
+      | sed '/^[[:space:]]*$/d' \
+      | tr -s ' \t' ' ' \
+      | head -c 2000)
+    write_note "# ${TITLE}
+
+**Source:** [${TITLE}](${URL})
+**Saved:** ${DATE}
+
+---
+
+## Excerpt
+
+${RAW_TEXT}
+"
+    ;;
+
+  summarize)
+    if ! command -v "$CLAUDE_CMD" &>/dev/null; then
+      echo "Error: claude CLI not found. Install it or change CLAUDE_CMD in the config."
+      exit 1
+    fi
+    echo "Fetching and summarizing (this may take a moment)..."
+    PAGE_CONTENT=$(curl -sL --max-time 15 "$URL" \
+      | perl -0pe 's/<script[^>]*>.*?<\/script>//gsi' \
+      | perl -0pe 's/<style[^>]*>.*?<\/style>//gsi' \
+      | sed 's/<[^>]*>//g' \
+      | sed '/^[[:space:]]*$/d' \
+      | tr -s ' \t' ' ' \
+      | head -c 8000)
+
+    SUMMARY=$(printf '%s\n\nPage content follows:\n' "$PAGE_CONTENT" | "$CLAUDE_CMD" -p "Summarize the following web page content. Output ONLY the markdown body — no code fences, no preamble. Use this exact format:
+
+# ${TITLE}
+
+**Source:** [${TITLE}](${URL})
+**Saved:** ${DATE}
+**Note:** Summarized via save-link
+
+---
+
+## Summary
+<2-3 paragraph summary of the content>
+
+## Key Points
+- <key point>
+- <key point>
+- <key point>")
+    write_note "$SUMMARY"
+    ;;
+
+  *)
+    echo "Error: unknown action: $ACTION_KEY"
+    exit 1
+    ;;
+esac
