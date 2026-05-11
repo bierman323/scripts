@@ -82,6 +82,32 @@ duplicate_check() {
   fi
 }
 
+resolve_title() {
+  local url="$1"
+  local title
+  title=$(curl -sL --max-time 10 "$url" \
+    | grep -o '<title[^>]*>[^<]*</title>' \
+    | sed 's/<[^>]*>//g' \
+    | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' \
+    | head -1)
+  # Fallback to domain if no title found
+  if [[ -z "$title" ]]; then
+    title=$(echo "$url" | sed 's|https\?://||;s|/.*||')
+  fi
+  echo "$title"
+}
+
+slugify() {
+  local input="$1"
+  echo "$input" \
+    | tr '[:upper:]' '[:lower:]' \
+    | sed 's/[^a-z0-9 -]//g' \
+    | sed -E 's/ +/-/g' \
+    | sed -E 's/-+/-/g' \
+    | cut -c1-60 \
+    | sed 's/-$//'
+}
+
 usage() {
   echo "Usage: save-link <url>"
   echo ""
@@ -97,3 +123,12 @@ URL="$1"
 
 db_init
 duplicate_check "$URL"
+
+echo "Fetching title..."
+TITLE=$(resolve_title "$URL")
+echo "Title: $TITLE"
+SLUG=$(slugify "$TITLE")
+DATE=$(date +%Y-%m-%d)
+FILENAME="${DATE}-${SLUG}.md"
+
+echo "FILENAME=$FILENAME"
