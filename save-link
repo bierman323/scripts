@@ -329,3 +329,36 @@ ${RAW_TEXT}
     exit 1
     ;;
 esac
+
+db_record() {
+  local url="$1" title="$2" file_path="$3" folder="$4" vault="$5" action="$6"
+  # Escape single quotes for SQLite
+  local esc_url="${url//"'"/"''"}"
+  local esc_title="${title//"'"/"''"}"
+  local esc_path="${file_path//"'"/"''"}"
+  local esc_folder="${folder//"'"/"''"}"
+
+  sqlite3 "$DB_PATH" <<SQL
+INSERT OR IGNORE INTO links(url, title, file_path, folder, vault, action)
+VALUES('${esc_url}', '${esc_title}', '${esc_path}', '${esc_folder}', '${vault}', '${action}');
+
+INSERT INTO folder_defaults(folder, default_action, sample_count, updated_at)
+SELECT
+  '${esc_folder}',
+  action,
+  COUNT(*),
+  date('now')
+FROM links
+WHERE folder = '${esc_folder}'
+GROUP BY action
+ORDER BY COUNT(*) DESC
+LIMIT 1
+ON CONFLICT(folder) DO UPDATE SET
+  default_action = excluded.default_action,
+  sample_count   = excluded.sample_count,
+  updated_at     = excluded.updated_at;
+SQL
+}
+
+db_record "$URL" "$TITLE" "$NOTE_PATH" "$FOLDER_CHOICE" "$VAULT_KEY" "$ACTION_KEY"
+echo "Saved to $NOTE_PATH"
