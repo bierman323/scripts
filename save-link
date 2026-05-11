@@ -233,3 +233,37 @@ for a in "${ACTIONS[@]}"; do
     break
   fi
 done
+
+# Ensure target folder exists
+mkdir -p "$FOLDER_ABS"
+NOTE_PATH="${FOLDER_ABS}/${FILENAME}"
+
+write_note() {
+  local content="$1"
+  printf '%s\n' "$content" > "$NOTE_PATH"
+}
+
+case "$ACTION_KEY" in
+  link-only)
+    write_note "# ${TITLE}
+
+**Source:** [${TITLE}](${URL})
+**Saved:** ${DATE}
+"
+    ;;
+
+  annotate)
+    echo "Note (press Ctrl-D when done):"
+    USER_NOTE=$(cat </dev/tty)
+    write_note "# ${TITLE}
+
+**Source:** [${TITLE}](${URL})
+**Saved:** ${DATE}
+
+---
+
+## Notes
+
+${USER_NOTE}
+"
+    ;;
