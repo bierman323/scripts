@@ -13,15 +13,10 @@ PERSONAL_VAULT="${HOME}/obsidian"
 # Format: "Display Name|relative/path/in/vault"
 # Listed in seed order (most relevant first); DB usage stats will reorder at runtime.
 WORK_FOLDERS=(
-  "Research/Security Research|Research/Security Research"
-  "Labs/Integration Lab|Labs/Integration Lab"
-  "Labs/Threat Lab|Labs/Threat Lab"
-  "Labs/DecAIpticon|Labs/DecAIpticon"
-  "IDR/detection_coe|IDR/detection_coe"
-  "IDR/schema_council|IDR/schema_council"
+  "Research|Research"
+  "Labs|Labs"
   "Knowledge|Knowledge"
   "Projects|Projects"
-  "AWN|AWN"
   "Read later|Read later"
 )
 

@@ -2,13 +2,10 @@
 *.pyc
 __pycache__/
 
-# Arctic Wolf internal tooling
 awn-token
 awn-devcon-update.sh
 helm
 socks_proxy.py
-
-# Symlinks to AW repos / local tools
 anonymize_customers.py
 qb_backsearch.py
 devcontainer

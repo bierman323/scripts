@@ -179,7 +179,7 @@ fi
 printf "\n${BLD}Notable observations:${RST}\n"
 NOTES=0
 
-# Check for smclane-style rapid failed attempts (3+ failures within 30s from same IP)
+# Check for rapid failed attempts (3+ failures within 30s from same IP)
 RAPID=$(printf "%s\n" "$FAILED" | awk '
   {
     ip=$NF
