@@ -108,23 +108,20 @@ printf   "${BLD}${CYN}╚══════════════════�
 
 # --- Users who have logged in (from wtmp) ---
 printf "\n${BLD}Users who have logged in (wtmp history):${RST}\n"
-printf "%-16s %-22s %-18s %s\n" "USER" "LAST LOGIN" "DURATION" "FROM"
-printf "%-16s %-22s %-18s %s\n" "----" "----------" "--------" "----"
+printf "%-16s %-26s %-18s %s\n" "USER" "LAST LOGIN" "DURATION" "FROM"
+printf "%-16s %-26s %-18s %s\n" "----" "----------" "--------" "----"
 
 # Parse last output: skip reboots, system entries, and the trailing wtmp line
 printf "%s\n" "$LAST_OUT" \
   | grep -v "^reboot\|^wtmp\|^$\|system boot" \
   | awk '{
       user=$1
-      # last -F -a puts IP at the end; duration is in parens or "still logged in"
-      # Fields: user tty ip dow mon day HH:MM:SS year - dow mon day HH:MM:SS year (dur) IP
       ip=$NF
-      # find duration: either "(HH:MM)" or "still logged in"
+      # Fields (last -F -a): user tty dow mon day HH:MM:SS year - dow mon day HH:MM:SS year (dur) IP
+      date=$3" "$4" "$5" "$6" "$7
       dur="still logged in"
       for(i=1;i<=NF;i++) if($i ~ /^\(/) { dur=$i; gsub(/[()]/,"",dur) }
-      # date: fields 5-9 give "Mon Apr 20 16:08:12 2026"
-      date=$5" "$6" "$7" "$8" "$9
-      printf "%-16s %-22s %-18s %s\n", user, date, dur, ip
+      printf "%-16s %-26s %-18s %s\n", user, date, dur, ip
     }' \
   | sort -u -k1,1
 
